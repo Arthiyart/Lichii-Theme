@@ -5981,8 +5981,12 @@ void MainWindow::UpdateUITheme() {
             QTextStream ts(&custom_file);
             ts.setEncoding(QStringConverter::Utf8);
             const QString custom_sheet = ts.readAll();
-            style_sheet =
-                custom_theme->inherit ? style_sheet + QLatin1Char('\n') + custom_sheet : custom_sheet;
+            if (custom_theme->inherit) {
+                style_sheet += QLatin1Char('\n');
+                style_sheet += custom_sheet;
+            } else {
+                style_sheet = custom_sheet;
+            }
         } else {
             LOG_ERROR(Frontend, "Unable to open the custom theme's style.qss in \"{}\"",
                       custom_theme->dir.toStdString());

@@ -127,8 +127,8 @@ ConfigureUi::ConfigureUi(Core::System& system_, QWidget* parent)
     }
     // The themes of the user's themes folder follow the built-in ones.
     for (const auto& theme : UISettings::ScanCustomThemes()) {
-        ui->theme_combobox->addItem(theme.name,
-                                    QString::fromUtf8(UISettings::CustomThemePrefix) + theme.id);
+        const QString data = QString::fromUtf8(UISettings::CustomThemePrefix) + theme.id;
+        ui->theme_combobox->addItem(theme.name, data);
     }
     connect(ui->themes_folder_button, &QToolButton::clicked, this, [] {
         QDesktopServices::openUrl(QUrl::fromLocalFile(UISettings::ThemesDir()));
