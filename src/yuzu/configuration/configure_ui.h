@@ -42,6 +42,7 @@ private:
     void RetranslateUI();
 
     void InitializeLanguageComboBox();
+    void InitializePerfOverlayComboBoxes();
     void InitializeIconSizeComboBox();
     void InitializeRowComboBoxes();
 

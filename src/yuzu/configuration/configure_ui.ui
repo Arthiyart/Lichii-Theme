@@ -61,6 +61,44 @@
           <item>
            <widget class="QComboBox" name="theme_combobox"/>
           </item>
+          <item>
+           <widget class="QToolButton" name="themes_folder_button">
+            <property name="toolTip">
+             <string>Each folder in the themes folder that holds a style.qss is listed as a theme.</string>
+            </property>
+            <property name="text">
+             <string>Open Themes Folder</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="perf_overlay_position_layout">
+          <item>
+           <widget class="QLabel" name="perf_overlay_position_label">
+            <property name="text">
+             <string>Performance overlay position:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="perf_overlay_position_combobox"/>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="perf_overlay_style_layout">
+          <item>
+           <widget class="QLabel" name="perf_overlay_style_label">
+            <property name="text">
+             <string>Performance overlay style:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="perf_overlay_style_combobox"/>
+          </item>
          </layout>
         </item>
        </layout>
