@@ -23,7 +23,7 @@ class PerformanceOverlay : public QWidget {
     Q_OBJECT
 
     // The colours are properties so that a theme's stylesheet can set them:
-    //   PerformanceOverlay { qproperty-accentColor: #74b384; qproperty-cornerRadius: 8; }
+    //   PerformanceOverlay { qproperty-accentColor: #82a88b; qproperty-cornerRadius: 8; }
     Q_PROPERTY(QColor backgroundColor MEMBER m_backgroundColor)
     Q_PROPERTY(QColor borderColor MEMBER m_borderColor)
     Q_PROPERTY(QColor textColor MEMBER m_textColor)
@@ -87,6 +87,8 @@ private:
     std::optional<double> m_frameMs;
     std::optional<double> m_cpuPercent;
     std::optional<double> m_gpuPercent;
+    /// The emulator's resident memory in bytes, read for the full style
+    std::optional<u64> m_memoryBytes;
     std::optional<Common::DkbCpuTrace::Snapshot> m_cpuSnapshot;
     std::vector<Core::FrameTimeHistory::Entry> m_frames;
     QString m_tags;

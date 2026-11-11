@@ -10,7 +10,7 @@ The interface can be restyled with your own themes, without rebuilding the emula
 
    ```
    themes/
-     sage-dark/
+     art-dark/
        style.qss
        theme.ini      (optional)
        icons/         (optional, whatever the stylesheet uses)
@@ -18,7 +18,7 @@ The interface can be restyled with your own themes, without rebuilding the emula
 
 3. Open the configuration again and pick the theme in the **Theme** list, below the built-in ones.
 
-An example theme is in [`dist/custom_themes/sage-dark`](../../dist/custom_themes/sage-dark).
+An example theme is in [`dist/custom_themes/art-dark`](../../dist/custom_themes/art-dark).
 
 ## Writing a theme
 
@@ -39,7 +39,7 @@ Every key is optional.
 
 ```ini
 [Theme]
-name=Sage Dark
+name=Art Dark
 base=lichii
 dark=true
 inherit=false
@@ -61,7 +61,7 @@ PerformanceOverlay {
     qproperty-backgroundColor: rgba(21, 24, 22, 230);
     qproperty-borderColor: #303531;
     qproperty-cornerRadius: 10;
-    qproperty-accentColor: #74b384;
+    qproperty-accentColor: #82a88b;
 }
 ```
 
@@ -92,4 +92,4 @@ A property the stylesheet doesn't set keeps its built-in colour.
   - *Minimal*: frame rate and frame time.
   - *Standard*: frame rate, frame time, CPU and GPU load, and the frame time graph.
   - *Full*: frame time and frame rate with their minimum, maximum and average, CPU and GPU load,
-    and the frame rate chart of the last minute.
+    the emulator's memory, and the frame rate chart of the last minute.

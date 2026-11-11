@@ -18,6 +18,7 @@
 #include <QFileDialog>
 #include <QLocale>
 #include <QString>
+#include <QPushButton>
 #include <QToolButton>
 #include <QTranslator>
 #include <QUrl>
@@ -130,7 +131,7 @@ ConfigureUi::ConfigureUi(Core::System& system_, QWidget* parent)
         const QString data = QString::fromUtf8(UISettings::CustomThemePrefix) + theme.id;
         ui->theme_combobox->addItem(theme.name, data);
     }
-    connect(ui->themes_folder_button, &QToolButton::clicked, this, [] {
+    connect(ui->themes_folder_button, &QPushButton::clicked, this, [] {
         QDesktopServices::openUrl(QUrl::fromLocalFile(UISettings::ThemesDir()));
     });
 

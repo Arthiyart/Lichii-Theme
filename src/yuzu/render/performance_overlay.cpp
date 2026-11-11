@@ -18,6 +18,7 @@
 #include <QStringList>
 #include <QWindow>
 
+#include "common/memory_detect.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "main_window.h"
@@ -50,7 +51,7 @@ constexpr int MinimalHeight = 40;
 
 // The full style: every figure in rows, then the fps chart.
 constexpr int FullWidth = 300;
-constexpr int FullHeight = 236;
+constexpr int FullHeight = 254;
 constexpr qreal FullRowHeight = 18;
 constexpr qreal FullChartHeight = 96;
 constexpr qreal FullAxisWidth = 30;
@@ -290,6 +291,17 @@ void PerformanceOverlay::updateStats(const Core::PerfStatsResults& results,
         m_gpuPercent = std::min(100.0, *gpu_ms / *m_frameMs * 100.0);
     }
 
+    m_memoryBytes.reset();
+    if (m_style == UISettings::PerfOverlayStyle::Full) {
+        // What the task manager shows; hosts without it report the resident memory.
+        const auto usage = Common::GetProcessMemoryUsage();
+        const u64 bytes =
+            usage.private_working_set != 0 ? usage.private_working_set : usage.working_set;
+        if (bytes != 0) {
+            m_memoryBytes = bytes;
+        }
+    }
+
     QStringList tags;
     if (const QString& dlss = m_mainWindow->DlssStatusText(); !dlss.isEmpty()) {
         tags << dlss;
@@ -455,6 +467,29 @@ void PerformanceOverlay::paintFull(QPainter& painter) {
          gpu_limit ? m_textColor : m_mutedColor},
     };
     DrawRuns(painter, right - Width(load_runs), Baseline(unit_font, top, FullRowHeight), load_runs);
+    top += FullRowHeight;
+
+    // The emulator's own memory.
+    DrawRuns(painter, PaddingX, Baseline(label_font, top, FullRowHeight),
+             {{tr("Memory"), label_font, m_accentColor}});
+    QString memory = QStringLiteral("—");
+    QString memory_unit;
+    if (m_memoryBytes) {
+        const double mib = static_cast<double>(*m_memoryBytes) / (1024.0 * 1024.0);
+        if (mib >= 1024.0) {
+            memory = QString::number(mib / 1024.0, 'f', 2);
+            memory_unit = QStringLiteral(" GB");
+        } else {
+            memory = QString::number(mib, 'f', 0);
+            memory_unit = QStringLiteral(" MB");
+        }
+    }
+    const std::vector<Run> memory_runs{
+        {memory, value_font, m_textColor},
+        {memory_unit, unit_font, m_mutedColor},
+    };
+    DrawRuns(painter, right - Width(memory_runs), Baseline(value_font, top, FullRowHeight),
+             memory_runs);
     top += FullRowHeight + 6;
 
     paintFpsChart(painter, QRectF{PaddingX, top, ContentWidth, FullChartHeight});
@@ -677,6 +712,7 @@ void PerformanceOverlay::hideEvent(QHideEvent* event) {
     m_frameMs.reset();
     m_cpuPercent.reset();
     m_gpuPercent.reset();
+    m_memoryBytes.reset();
     m_cpuSnapshot.reset();
     m_frames.clear();
     m_fpsHistory.clear();
