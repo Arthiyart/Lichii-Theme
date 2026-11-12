@@ -3,6 +3,7 @@
 
 #include "yuzu/configuration/configure_ui.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <set>
@@ -12,12 +13,15 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QDirIterator>
 #include <QFileDialog>
 #include <QLocale>
 #include <QString>
+#include <QPushButton>
 #include <QToolButton>
 #include <QTranslator>
+#include <QUrl>
 #include <QVariant>
 
 #include "common/common_types.h"
@@ -49,6 +53,13 @@ constexpr std::array row_text_names{
     QT_TRANSLATE_NOOP("ConfigureUI", "None"),
 };
 // clang-format on
+
+// In the order of UISettings::PerfOverlayStyle.
+constexpr std::array perf_overlay_style_names{
+    QT_TRANSLATE_NOOP("ConfigureUI", "Minimal (frame rate and frame time)"),
+    QT_TRANSLATE_NOOP("ConfigureUI", "Standard"),
+    QT_TRANSLATE_NOOP("ConfigureUI", "Full (every figure and the frame rate chart)"),
+};
 
 QString GetTranslatedFolderIconSize(size_t index) {
     return QCoreApplication::translate("ConfigureUI", default_folder_icon_sizes[index].second);
@@ -108,7 +119,16 @@ ConfigureUi::ConfigureUi(Core::System& system_, QWidget* parent)
         ui->theme_combobox->addItem(QString::fromUtf8(theme.first),
                                     QString::fromUtf8(theme.second));
     }
+    // The themes of the user's themes folder follow the built-in ones.
+    for (const auto& theme : UISettings::ScanCustomThemes()) {
+        const QString data = QString::fromUtf8(UISettings::CustomThemePrefix) + theme.id;
+        ui->theme_combobox->addItem(theme.name, data);
+    }
+    connect(ui->themes_folder_button, &QPushButton::clicked, this, [] {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(UISettings::ThemesDir()));
+    });
 
+    InitializePerfOverlayComboBoxes();
     InitializeIconSizeComboBox();
     InitializeRowComboBoxes();
 
@@ -160,6 +180,18 @@ ConfigureUi::~ConfigureUi() = default;
 void ConfigureUi::ApplyConfiguration() {
     UISettings::values.theme =
         ui->theme_combobox->itemData(ui->theme_combobox->currentIndex()).toString().toStdString();
+    if (reset_overlay_position) {
+        reset_overlay_position = false;
+        ui->perf_overlay_reset_button->setEnabled(true);
+        UISettings::values.perf_overlay_position =
+            UISettings::values.perf_overlay_position.GetDefault();
+        UISettings::values.perf_overlay_offset_x =
+            UISettings::values.perf_overlay_offset_x.GetDefault();
+        UISettings::values.perf_overlay_offset_y =
+            UISettings::values.perf_overlay_offset_y.GetDefault();
+    }
+    UISettings::values.perf_overlay_style =
+        static_cast<u32>(ui->perf_overlay_style_combobox->currentIndex());
     UISettings::values.show_add_ons = ui->show_add_ons->isChecked();
     UISettings::values.show_size = ui->show_size->isChecked();
     UISettings::values.show_types = ui->show_types->isChecked();
@@ -184,8 +216,18 @@ void ConfigureUi::RequestGameListUpdate() {
 }
 
 void ConfigureUi::SetConfiguration() {
-    ui->theme_combobox->setCurrentIndex(
-        ui->theme_combobox->findData(QString::fromStdString(UISettings::values.theme)));
+    const QString theme = QString::fromStdString(UISettings::values.theme);
+    if (ui->theme_combobox->findData(theme) == -1) {
+        // A custom theme whose folder is gone, listed so that the setting stays until another
+        // theme is chosen.
+        const QString prefix = QString::fromUtf8(UISettings::CustomThemePrefix);
+        const QString name = theme.startsWith(prefix) ? theme.mid(prefix.size()) : theme;
+        ui->theme_combobox->addItem(tr("%1 - not found").arg(name), theme);
+    }
+    ui->theme_combobox->setCurrentIndex(ui->theme_combobox->findData(theme));
+    ui->perf_overlay_style_combobox->setCurrentIndex(
+        static_cast<int>(std::min<u32>(UISettings::values.perf_overlay_style.GetValue(),
+                                       static_cast<u32>(perf_overlay_style_names.size() - 1))));
     const QString language = QString::fromStdString(UISettings::values.language.GetValue());
     if (ui->language_combobox->findData(language) == -1) {
         // A language the list doesn't have, listed so that the setting stays until another one is
@@ -235,6 +277,12 @@ void ConfigureUi::RetranslateUI() {
             i, GetTranslatedFolderIconSize(static_cast<size_t>(i)));
     }
 
+    for (int i = 0; i < ui->perf_overlay_style_combobox->count(); i++) {
+        ui->perf_overlay_style_combobox->setItemText(
+            i, QCoreApplication::translate("ConfigureUI",
+                                           perf_overlay_style_names[static_cast<size_t>(i)]));
+    }
+
     // Each row list leaves names out (the first has no None, and neither lists the other row's
     // choice), so an item's name comes from its data, not its position.
     for (QComboBox* const combobox : {ui->row_1_text_combobox, ui->row_2_text_combobox}) {
@@ -261,6 +309,16 @@ void ConfigureUi::InitializeLanguageComboBox() {
     // retranslating when passing back.
     connect(ui->language_combobox, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &ConfigureUi::OnLanguageChanged);
+}
+
+void ConfigureUi::InitializePerfOverlayComboBoxes() {
+    connect(ui->perf_overlay_reset_button, &QPushButton::clicked, this, [this] {
+        reset_overlay_position = true;
+        ui->perf_overlay_reset_button->setEnabled(false);
+    });
+    for (const char* name : perf_overlay_style_names) {
+        ui->perf_overlay_style_combobox->addItem(QCoreApplication::translate("ConfigureUI", name));
+    }
 }
 
 void ConfigureUi::InitializeIconSizeComboBox() {

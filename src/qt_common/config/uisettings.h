@@ -8,6 +8,8 @@
 
 #include <array>
 #include <atomic>
+#include <optional>
+#include <string>
 #include <vector>
 #include <QByteArray>
 #include <QMetaType>
@@ -68,6 +70,51 @@ static constexpr Theme default_theme{Theme::LichiiDark};
 
 using Themes = std::array<std::pair<const char*, const char*>, 7>;
 extern const Themes themes;
+
+/// A theme loaded from a folder of the user's themes directory.
+/// UISettings::values.theme holds it as CustomThemePrefix followed by the folder's name.
+struct CustomTheme {
+    QString id;   ///< The folder's name
+    QString name; ///< Shown in the theme list
+    QString dir;  ///< Absolute path of the folder
+    /// The built-in theme that provides the icons and the palette
+    QString base;
+    bool dark = true;
+    /// The colour of what is selected, as QColor reads it (#rrggbb); empty keeps the base theme's
+    QString accent;
+    /// Whether the base theme's stylesheet is applied before this theme's
+    bool inherit = false;
+};
+
+inline constexpr const char* CustomThemePrefix = "custom:";
+
+/// The user's themes directory, created if it doesn't exist.
+QString ThemesDir();
+
+/// The themes found in the themes directory, sorted by name.
+std::vector<CustomTheme> ScanCustomThemes();
+
+/// Reads the selected custom theme from disk again. Call before applying the theme.
+void RefreshActiveCustomTheme();
+
+/// The selected custom theme, or nullopt when a built-in theme is selected or its folder is gone.
+const std::optional<CustomTheme>& ActiveCustomTheme();
+
+/// The built-in theme in effect: the selected one, or the base of the selected custom theme.
+std::string EffectiveTheme();
+
+enum class PerfOverlayPosition : u32 {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+};
+
+enum class PerfOverlayStyle : u32 {
+    Minimal,
+    Standard,
+    Full,
+};
 
 struct GameDir {
     std::string path;
@@ -209,7 +256,9 @@ struct Values {
 
     // Game List
     Setting<bool> show_add_ons{linkage, true, "show_add_ons", Category::UiGameList};
-    Setting<u32, true> game_icon_size{linkage, 64, 0, 512, "game_icon_size", Category::UiGameList};
+    Setting<u32, true> game_icon_size{linkage, 44, 0, 512, "game_icon_size", Category::UiGameList};
+    Setting<u32, true> game_cover_size{
+        linkage, 160, 0, 512, "game_cover_size", Category::UiGameList};
     Setting<u32, true> folder_icon_size{linkage, 48, 8, 512, "folder_icon_size", Category::UiGameList};
     Setting<u8> row_1_text_id{linkage, 3, "row_1_text_id", Category::UiGameList};
     Setting<u8> row_2_text_id{linkage, 2, "row_2_text_id", Category::UiGameList};
@@ -224,6 +273,18 @@ struct Values {
 
     // perf overlay
     Setting<bool> show_perf_overlay{linkage, false, "show_perf_overlay", Category::UiGameList};
+    // Where the overlay was dragged to: a PerfOverlayPosition, the corner of the window it is
+    // nearest to, and its distance in pixels from the two window edges of that corner.
+    Setting<u32> perf_overlay_position{linkage,
+                                       static_cast<u32>(PerfOverlayPosition::TopRight),
+                                       "perf_overlay_position", Category::UiGameList};
+    Setting<s32> perf_overlay_offset_x{linkage, 20, "perf_overlay_offset_x",
+                                       Category::UiGameList};
+    Setting<s32> perf_overlay_offset_y{linkage, 20, "perf_overlay_offset_y",
+                                       Category::UiGameList};
+    /// A PerfOverlayStyle: how much the overlay shows
+    Setting<u32> perf_overlay_style{linkage, static_cast<u32>(PerfOverlayStyle::Standard),
+                                    "perf_overlay_style", Category::UiGameList};
 
     // Size & File Types Column
     Setting<bool> show_size{linkage, true, "show_size", Category::UiGameList};
@@ -241,6 +302,9 @@ struct Values {
 };
 
 extern Values values;
+
+// The list rows and the grid/carousel covers keep separate sizes.
+Setting<u32, true>& CurrentGameIconSize();
 
 u32 CalculateWidth(u32 height, Settings::AspectRatio ratio);
 

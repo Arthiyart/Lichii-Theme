@@ -7,14 +7,21 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <functional>
+#include <numeric>
 #include <QFontMetricsF>
 #include <QGuiApplication>
+#include <QMenuBar>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPen>
 #include <QPolygonF>
+#include <QStatusBar>
 #include <QStringList>
 #include <QWindow>
 
+#include "common/memory_detect.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "main_window.h"
@@ -41,6 +48,22 @@ constexpr qreal LabelX = 247;
 constexpr qreal LabelHeight = 14;
 constexpr qreal FooterTop = GraphTop + GraphHeight + 10;
 
+// The minimal style: the fps number and the frame time on one line.
+constexpr int MinimalWidth = 176;
+constexpr int MinimalHeight = 40;
+
+// The full style: the standard one with the memory rows between the header and the graph.
+constexpr qreal FullRowHeight = 22;
+constexpr qreal FullRowsHeight = FullRowHeight * 2 + 4;
+constexpr int FullWidth = OverlayWidth;
+constexpr int FullHeight = OverlayHeight + static_cast<int>(FullRowsHeight);
+/// Less free memory than this is a warning.
+constexpr u64 LowMemory = u64{1} << 30;
+constexpr u64 LowVideoMemory = u64{512} << 20;
+
+/// Dragged this close to an edge of the main window's content, the overlay sticks to it.
+constexpr int SnapDistance = 10;
+
 constexpr auto HistoryWindow = std::chrono::seconds{5};
 constexpr auto StatsWindow = std::chrono::milliseconds{500};
 constexpr std::size_t FpsSamples = 10;
@@ -56,6 +79,7 @@ constexpr QRgb BackgroundColor = qRgba(0, 0, 0, 140);
 constexpr QRgb LineColor = qRgba(0xF2, 0xF3, 0xF5, 217);
 constexpr QRgb AxisColor = qRgba(255, 255, 255, 46);
 constexpr QRgb MedianLineColor = qRgba(255, 255, 255, 56);
+constexpr QRgb WarningColor = qRgb(0xF5, 0xA7, 0x42);
 
 /// The busiest of these threads is the CPU side's limit: the guest cores and GPU emulation.
 constexpr std::array CpuRoles{
@@ -110,23 +134,137 @@ QString Percent(const std::optional<double>& percent) {
                    : QStringLiteral("—");
 }
 
+QString Gigabytes(u64 bytes) {
+    return QStringLiteral("%1 GB").arg(static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0), 0,
+                                       'f', 1);
+}
+
+/// The frame rate of the slowest hundredth of the frames.
+std::optional<double> LowFps(const std::vector<Core::FrameTimeHistory::Entry>& frames) {
+    if (frames.size() < 2) {
+        return std::nullopt;
+    }
+    std::vector<float> frame_ms;
+    frame_ms.reserve(frames.size());
+    for (const auto& frame : frames) {
+        frame_ms.push_back(frame.ms);
+    }
+    const std::size_t count = std::max<std::size_t>(1, frame_ms.size() / 100);
+    const auto slowest_end = frame_ms.begin() + static_cast<std::ptrdiff_t>(count);
+    std::partial_sort(frame_ms.begin(), slowest_end, frame_ms.end(), std::greater<>{});
+    const double sum = std::accumulate(frame_ms.begin(), slowest_end, 0.0);
+    if (sum <= 0) {
+        return std::nullopt;
+    }
+    return 1000.0 * static_cast<double>(count) / sum;
+}
+
 } // namespace
 
 PerformanceOverlay::PerformanceOverlay(MainWindow* parent) : QWidget(parent), m_mainWindow{parent} {
     setAttribute(Qt::WA_TranslucentBackground);
     setWindowFlags(Qt::FramelessWindowHint | Qt::Tool);
-    setFixedSize(OverlayWidth, OverlayHeight);
+    ResetThemeColors();
     raise();
 
     // pos/stats
-    resetPosition(m_mainWindow->pos());
+    ApplySettings();
     connect(parent, &MainWindow::positionChanged, this, &PerformanceOverlay::resetPosition);
+    connect(parent, &MainWindow::sizeChanged, this, [this] { resetPosition({}); });
     connect(m_mainWindow, &MainWindow::statsUpdated, this, &PerformanceOverlay::updateStats);
 }
 
+void PerformanceOverlay::ApplySettings() {
+    using UISettings::PerfOverlayPosition;
+    using UISettings::PerfOverlayStyle;
+
+    m_style = static_cast<PerfOverlayStyle>(
+        std::min(UISettings::values.perf_overlay_style.GetValue(),
+                 static_cast<u32>(PerfOverlayStyle::Full)));
+    m_position = static_cast<PerfOverlayPosition>(
+        std::min(UISettings::values.perf_overlay_position.GetValue(),
+                 static_cast<u32>(PerfOverlayPosition::BottomRight)));
+
+    switch (m_style) {
+    case PerfOverlayStyle::Minimal:
+        setFixedSize(MinimalWidth, MinimalHeight);
+        break;
+    case PerfOverlayStyle::Standard:
+        setFixedSize(OverlayWidth, OverlayHeight);
+        break;
+    case PerfOverlayStyle::Full:
+        setFixedSize(FullWidth, FullHeight);
+        break;
+    }
+    resetPosition({});
+    update();
+}
+
+void PerformanceOverlay::ResetThemeColors() {
+    m_backgroundColor = QColor::fromRgba(BackgroundColor);
+    m_borderColor = QColor{Qt::transparent};
+    m_textColor = QColor::fromRgb(TextColor);
+    m_mutedColor = QColor::fromRgb(MutedColor);
+    m_dimColor = QColor::fromRgb(DimColor);
+    m_accentColor = QColor::fromRgb(AccentColor);
+    m_spikeColor = QColor::fromRgb(SpikeColor);
+    m_lineColor = QColor::fromRgba(LineColor);
+    m_axisColor = QColor::fromRgba(AxisColor);
+    m_medianLineColor = QColor::fromRgba(MedianLineColor);
+    m_warningColor = QColor::fromRgb(WarningColor);
+    m_cornerRadius = 5.0;
+    update();
+}
+
+QRect PerformanceOverlay::ContentArea() const {
+    QRect area{m_mainWindow->mapToGlobal(QPoint{0, 0}), m_mainWindow->size()};
+    if (const QWidget* menu_bar = m_mainWindow->menuBar(); menu_bar->isVisible()) {
+        area.setTop(area.top() + menu_bar->height());
+    }
+    if (const QWidget* status_bar = m_mainWindow->statusBar(); status_bar->isVisible()) {
+        area.setBottom(area.bottom() - status_bar->height());
+    }
+    return area;
+}
+
+QPoint PerformanceOverlay::AnchorPosition() const {
+    using UISettings::PerfOverlayPosition;
+
+    const QRect area = ContentArea();
+    const int offset_x = UISettings::values.perf_overlay_offset_x.GetValue();
+    const int offset_y = UISettings::values.perf_overlay_offset_y.GetValue();
+    const bool right = m_position == PerfOverlayPosition::TopRight ||
+                       m_position == PerfOverlayPosition::BottomRight;
+    const bool bottom = m_position == PerfOverlayPosition::BottomLeft ||
+                        m_position == PerfOverlayPosition::BottomRight;
+    return QPoint{
+        right ? area.right() + 1 - offset_x - width() : area.left() + offset_x,
+        bottom ? area.bottom() + 1 - offset_y - height() : area.top() + offset_y,
+    };
+}
+
+void PerformanceOverlay::StoreAnchor() {
+    using UISettings::PerfOverlayPosition;
+
+    // The nearest corner is the anchor: the overlay keeps its distance from that corner's edges.
+    const QRect area = ContentArea();
+    const QRect box{pos(), size()};
+    const bool right = box.center().x() > area.center().x();
+    const bool bottom = box.center().y() > area.center().y();
+    if (bottom) {
+        m_position = right ? PerfOverlayPosition::BottomRight : PerfOverlayPosition::BottomLeft;
+    } else {
+        m_position = right ? PerfOverlayPosition::TopRight : PerfOverlayPosition::TopLeft;
+    }
+    UISettings::values.perf_overlay_position = static_cast<u32>(m_position);
+    UISettings::values.perf_overlay_offset_x =
+        right ? area.right() + 1 - (box.x() + box.width()) : box.x() - area.left();
+    UISettings::values.perf_overlay_offset_y =
+        bottom ? area.bottom() + 1 - (box.y() + box.height()) : box.y() - area.top();
+}
+
 void PerformanceOverlay::resetPosition(const QPoint& _) {
-    auto pos = m_mainWindow->pos();
-    move(pos.x() + m_offset.x(), pos.y() + m_offset.y());
+    move(AnchorPosition());
 }
 
 void PerformanceOverlay::updateStats(const Core::PerfStatsResults& results,
@@ -190,6 +328,27 @@ void PerformanceOverlay::updateStats(const Core::PerfStatsResults& results,
         m_gpuPercent = std::min(100.0, *gpu_ms / *m_frameMs * 100.0);
     }
 
+    m_memoryBytes.reset();
+    m_memoryFree.reset();
+    m_vramUsed.reset();
+    m_vramFree.reset();
+    if (m_style == UISettings::PerfOverlayStyle::Full) {
+        // What the task manager shows; hosts without it report the resident memory.
+        const auto usage = Common::GetProcessMemoryUsage();
+        const u64 bytes =
+            usage.private_working_set != 0 ? usage.private_working_set : usage.working_set;
+        if (bytes != 0) {
+            m_memoryBytes = bytes;
+        }
+        if (const u64 available = Common::GetAvailablePhysicalMemory(); available != 0) {
+            m_memoryFree = available;
+        }
+        if (const auto device_memory = renderer.GetDeviceMemory()) {
+            m_vramUsed = device_memory->used;
+            m_vramFree = device_memory->available;
+        }
+    }
+
     QStringList tags;
     if (const QString& dlss = m_mainWindow->DlssStatusText(); !dlss.isEmpty()) {
         tags << dlss;
@@ -224,13 +383,56 @@ void PerformanceOverlay::paintEvent(QPaintEvent* event) {
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
 
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor::fromRgba(BackgroundColor));
-    painter.drawRoundedRect(rect(), 5.0, 5.0);
+    painter.setBrush(m_backgroundColor);
+    if (m_borderColor.alpha() > 0) {
+        painter.setPen(QPen{m_borderColor, 1.0});
+        painter.drawRoundedRect(QRectF{rect()}.adjusted(0.5, 0.5, -0.5, -0.5), m_cornerRadius,
+                                m_cornerRadius);
+    } else {
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(rect(), m_cornerRadius, m_cornerRadius);
+    }
 
-    const QColor text = QColor::fromRgb(TextColor);
-    const QColor muted = QColor::fromRgb(MutedColor);
-    const QColor accent = QColor::fromRgb(AccentColor);
+    switch (m_style) {
+    case UISettings::PerfOverlayStyle::Minimal:
+        paintMinimal(painter);
+        break;
+    case UISettings::PerfOverlayStyle::Standard:
+        paintDetailed(painter, false);
+        break;
+    case UISettings::PerfOverlayStyle::Full:
+        paintDetailed(painter, true);
+        break;
+    }
+}
+
+void PerformanceOverlay::paintMinimal(QPainter& painter) {
+    const QFont fps_font = MonoFont(24, QFont::DemiBold);
+    const QFont small_font = MonoFont(13);
+    const QFont small_bold_font = MonoFont(13, QFont::DemiBold);
+
+    // The fps number on the left, the frame time on the right, on one baseline.
+    const qreal baseline = Baseline(fps_font, 0, MinimalHeight);
+    const std::vector<Run> fps_runs{
+        {m_fps ? QString::number(std::round(*m_fps), 'f', 0) : QStringLiteral("—"), fps_font,
+         m_textColor},
+    };
+    DrawRuns(painter, PaddingX, baseline, fps_runs);
+    DrawRuns(painter, PaddingX + Width(fps_runs) + 5, baseline,
+             {{QStringLiteral("fps"), small_font, m_mutedColor}});
+
+    const std::vector<Run> ms_runs{
+        {m_frameMs ? QString::number(*m_frameMs, 'f', 1) : QStringLiteral("—"), small_bold_font,
+         m_textColor},
+        {QStringLiteral(" ms"), small_font, m_mutedColor},
+    };
+    DrawRuns(painter, MinimalWidth - PaddingX - Width(ms_runs), baseline, ms_runs);
+}
+
+void PerformanceOverlay::paintDetailed(QPainter& painter, bool full) {
+    const QColor text = m_textColor;
+    const QColor muted = m_mutedColor;
+    const QColor accent = m_accentColor;
     const QFont fps_font = MonoFont(40, QFont::DemiBold);
     const QFont small_font = MonoFont(13);
     const QFont small_bold_font = MonoFont(13, QFont::DemiBold);
@@ -268,7 +470,32 @@ void PerformanceOverlay::paintEvent(QPaintEvent* event) {
     DrawRuns(painter, right - Width(load_runs), Baseline(small_font, right_top + 17, 17),
              load_runs);
 
-    paintGraph(painter, QRectF{PaddingX, GraphTop, ContentWidth, GraphHeight});
+    // The full style's memory rows: what the emulator uses on the left, what is left on the right.
+    qreal offset = 0;
+    if (full) {
+        const QFont value_font = MonoFont(14, QFont::DemiBold);
+        const auto memory_row = [&](const QString& name, const std::optional<u64>& used,
+                                    const std::optional<u64>& available, u64 low) {
+            const qreal baseline =
+                Baseline(value_font, PaddingTop + HeaderHeight + 2 + offset, FullRowHeight);
+            DrawRuns(painter, PaddingX, baseline,
+                     {{used ? Gigabytes(*used) : QStringLiteral("—"), value_font, text},
+                      {name, small_font, muted}});
+            if (available) {
+                const std::vector<Run> free_runs{
+                    {tr("%1 free").arg(Gigabytes(*available)), small_font,
+                     *available < low ? m_warningColor : muted},
+                };
+                DrawRuns(painter, right - Width(free_runs), baseline, free_runs);
+            }
+            offset += FullRowHeight;
+        };
+        memory_row(QStringLiteral(" RAM"), m_memoryBytes, m_memoryFree, LowMemory);
+        memory_row(QStringLiteral(" VRAM"), m_vramUsed, m_vramFree, LowVideoMemory);
+        offset = FullRowsHeight;
+    }
+
+    paintGraph(painter, QRectF{PaddingX, GraphTop + offset, ContentWidth, GraphHeight});
 
     // Footer: fps min/median/max over the last 5 s, and the features that are on.
     QString fps_range = QStringLiteral("— — —");
@@ -279,11 +506,18 @@ void PerformanceOverlay::paintEvent(QPaintEvent* event) {
                         .arg(std::round(summary->median_ms), 0, 'f', 0)
                         .arg(summary->max_ms, 0, 'f', 0);
     }
-    const qreal footer_baseline = Baseline(footer_font, FooterTop, LabelHeight);
-    const std::vector<Run> range_runs{
+    const qreal footer_baseline = Baseline(footer_font, FooterTop + offset, LabelHeight);
+    std::vector<Run> range_runs{
         {fps_range, footer_font, muted},
-        {QStringLiteral(" fps"), footer_font, QColor::fromRgb(DimColor)},
+        {QStringLiteral(" fps"), footer_font, m_dimColor},
     };
+    if (full) {
+        const auto low_fps = LowFps(m_frames);
+        range_runs.push_back({tr("  low "), footer_font, m_dimColor});
+        range_runs.push_back(
+            {low_fps ? QString::number(std::round(*low_fps), 'f', 0) : QStringLiteral("—"),
+             footer_font, muted});
+    }
     DrawRuns(painter, PaddingX, footer_baseline, range_runs);
 
     const qreal tags_width = ContentWidth - Width(range_runs) - 12;
@@ -295,7 +529,7 @@ void PerformanceOverlay::paintEvent(QPaintEvent* event) {
 
 void PerformanceOverlay::paintGraph(QPainter& painter, const QRectF& area) {
     painter.fillRect(QRectF{area.left() + AxisX, area.top(), 1, area.height()},
-                     QColor::fromRgba(AxisColor));
+                     m_axisColor);
     if (m_frames.size() < 2) {
         return;
     }
@@ -332,19 +566,19 @@ void PerformanceOverlay::paintGraph(QPainter& painter, const QRectF& area) {
     }
 
     painter.setBrush(Qt::NoBrush);
-    QPen median_pen{QColor::fromRgba(MedianLineColor), 0.75};
+    QPen median_pen{m_medianLineColor, 0.75};
     median_pen.setDashPattern({2.0 / 0.75, 3.0 / 0.75});
     painter.setPen(median_pen);
     const qreal median_y = y_of(summary.median_ms);
     painter.drawLine(QPointF{area.left(), median_y}, QPointF{area.left() + PlotWidth, median_y});
 
-    QPen line_pen{QColor::fromRgba(LineColor), 1.1};
+    QPen line_pen{m_lineColor, 1.1};
     line_pen.setJoinStyle(Qt::RoundJoin);
     painter.setPen(line_pen);
     painter.drawPolyline(line);
 
     const float spike_ms = summary.median_ms * SpikeRatio;
-    QPen spike_pen{QColor::fromRgb(SpikeColor), 1.1};
+    QPen spike_pen{m_spikeColor, 1.1};
     spike_pen.setCapStyle(Qt::RoundCap);
     spike_pen.setJoinStyle(Qt::RoundJoin);
     painter.setPen(spike_pen);
@@ -362,10 +596,10 @@ void PerformanceOverlay::paintGraph(QPainter& painter, const QRectF& area) {
     };
     const std::array<Tick, 3> ticks{{
         {summary.max_ms,
-         QColor::fromRgb(summary.max_ms > spike_ms ? SpikeColor : TextColor),
+         summary.max_ms > spike_ms ? m_spikeColor : m_textColor,
          MonoFont(11, QFont::Medium)},
-        {summary.median_ms, QColor::fromRgb(TextColor), MonoFont(11, QFont::Medium)},
-        {summary.min_ms, QColor::fromRgb(MutedColor), MonoFont(11)},
+        {summary.median_ms, m_textColor, MonoFont(11, QFont::Medium)},
+        {summary.min_ms, m_mutedColor, MonoFont(11)},
     }};
     std::array<qreal, 3> label_tops{};
     for (std::size_t i = 0; i < ticks.size(); ++i) {
@@ -398,8 +632,17 @@ void PerformanceOverlay::hideEvent(QHideEvent* event) {
     m_frameMs.reset();
     m_cpuPercent.reset();
     m_gpuPercent.reset();
+    m_memoryBytes.reset();
+    m_memoryFree.reset();
+    m_vramUsed.reset();
+    m_vramFree.reset();
     m_cpuSnapshot.reset();
     m_frames.clear();
+}
+
+void PerformanceOverlay::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    resetPosition({});
 }
 
 void PerformanceOverlay::mousePressEvent(QMouseEvent* event) {
@@ -413,14 +656,33 @@ void PerformanceOverlay::mousePressEvent(QMouseEvent* event) {
         return;
     }
     m_drag_start_pos = event->pos();
+    m_dragged = false;
 }
 
 void PerformanceOverlay::mouseMoveEvent(QMouseEvent* event) {
     // drag
     if (event->buttons() & Qt::LeftButton) {
         QPoint new_global_pos = event->globalPosition().toPoint() - m_drag_start_pos;
-        m_offset = new_global_pos - m_mainWindow->pos();
+        const QRect area = ContentArea();
+        if (std::abs(new_global_pos.x() - area.left()) <= SnapDistance) {
+            new_global_pos.setX(area.left());
+        } else if (std::abs(new_global_pos.x() + width() - area.right() - 1) <= SnapDistance) {
+            new_global_pos.setX(area.right() + 1 - width());
+        }
+        if (std::abs(new_global_pos.y() - area.top()) <= SnapDistance) {
+            new_global_pos.setY(area.top());
+        } else if (std::abs(new_global_pos.y() + height() - area.bottom() - 1) <= SnapDistance) {
+            new_global_pos.setY(area.bottom() + 1 - height());
+        }
         move(new_global_pos);
+        m_dragged = true;
+    }
+}
+
+void PerformanceOverlay::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && m_dragged) {
+        m_dragged = false;
+        StoreAnchor();
     }
 }
 
