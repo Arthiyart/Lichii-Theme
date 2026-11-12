@@ -80,21 +80,5 @@ PerformanceOverlay {
 | `spikeColor` | Frame time spikes. |
 | `axisColor` | Axes and grid lines. |
 | `medianLineColor` | The frame time graph's median line. |
-| `warningColor` | Free memory that is running low (full style). |
 
 A property the stylesheet doesn't set keeps its built-in colour.
-
-## Performance overlay position and style
-
-Drag the overlay with the mouse to place it. It keeps its distance from the nearest corner of the
-window, so it stays in place when the window moves or changes size, and it sticks to an edge of the
-window when dragged close to it.
-
-**Emulation > Configure > General > UI** also has:
-
-- **Reset Position**: puts the overlay back in the top right corner.
-- **Performance overlay style**:
-  - *Minimal*: frame rate and frame time.
-  - *Standard*: frame rate, frame time, CPU and GPU load, and the frame time graph.
-  - *Full*: the standard style, plus the memory and the video memory the emulator uses with what
-    is left of each, and the frame rate of the slowest frames (low).

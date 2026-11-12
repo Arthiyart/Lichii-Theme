@@ -103,19 +103,6 @@ const std::optional<CustomTheme>& ActiveCustomTheme();
 /// The built-in theme in effect: the selected one, or the base of the selected custom theme.
 std::string EffectiveTheme();
 
-enum class PerfOverlayPosition : u32 {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-};
-
-enum class PerfOverlayStyle : u32 {
-    Minimal,
-    Standard,
-    Full,
-};
-
 struct GameDir {
     std::string path;
     bool deep_scan = false;
@@ -273,18 +260,6 @@ struct Values {
 
     // perf overlay
     Setting<bool> show_perf_overlay{linkage, false, "show_perf_overlay", Category::UiGameList};
-    // Where the overlay was dragged to: a PerfOverlayPosition, the corner of the window it is
-    // nearest to, and its distance in pixels from the two window edges of that corner.
-    Setting<u32> perf_overlay_position{linkage,
-                                       static_cast<u32>(PerfOverlayPosition::TopRight),
-                                       "perf_overlay_position", Category::UiGameList};
-    Setting<s32> perf_overlay_offset_x{linkage, 20, "perf_overlay_offset_x",
-                                       Category::UiGameList};
-    Setting<s32> perf_overlay_offset_y{linkage, 20, "perf_overlay_offset_y",
-                                       Category::UiGameList};
-    /// A PerfOverlayStyle: how much the overlay shows
-    Setting<u32> perf_overlay_style{linkage, static_cast<u32>(PerfOverlayStyle::Standard),
-                                    "perf_overlay_style", Category::UiGameList};
 
     // Size & File Types Column
     Setting<bool> show_size{linkage, true, "show_size", Category::UiGameList};

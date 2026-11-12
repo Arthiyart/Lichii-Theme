@@ -598,5 +598,4 @@ PerformanceOverlay {
     qproperty-lineColor: #cfe3d4;
     qproperty-axisColor: rgba(255, 255, 255, 40);
     qproperty-medianLineColor: rgba(255, 255, 255, 56);
-    qproperty-warningColor: #e0a45f;
 }

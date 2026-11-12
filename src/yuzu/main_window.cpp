@@ -3845,17 +3845,14 @@ void MainWindow::OnConfigure() {
     connect(&configure_dialog, &ConfigureDialog::ExternalContentDirsChanged, this,
             &MainWindow::OnGameListRefresh);
 
-    // The theme and the performance overlay follow Apply as well as OK.
-    const auto apply_theme_and_overlay = [this, &applied_theme] {
+    // The theme follows Apply as well as OK.
+    const auto apply_theme = [this, &applied_theme] {
         if (UISettings::values.theme != applied_theme) {
             applied_theme = UISettings::values.theme;
             UpdateUITheme();
         }
-        if (perf_overlay) {
-            perf_overlay->ApplySettings();
-        }
     };
-    connect(&configure_dialog, &ConfigureDialog::Applied, this, apply_theme_and_overlay);
+    connect(&configure_dialog, &ConfigureDialog::Applied, this, apply_theme);
 
     const auto result = configure_dialog.exec();
     if (result != QDialog::Accepted && !UISettings::values.configuration_applied &&
@@ -3902,7 +3899,7 @@ void MainWindow::OnConfigure() {
     }
     InitializeHotkeys();
 
-    apply_theme_and_overlay();
+    apply_theme();
     if (UISettings::values.enable_discord_presence.GetValue() != old_discord_presence) {
         SetDiscordEnabled(UISettings::values.enable_discord_presence.GetValue());
     }

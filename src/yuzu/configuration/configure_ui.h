@@ -42,7 +42,6 @@ private:
     void RetranslateUI();
 
     void InitializeLanguageComboBox();
-    void InitializePerfOverlayComboBoxes();
     void InitializeIconSizeComboBox();
     void InitializeRowComboBoxes();
 
@@ -52,9 +51,6 @@ private:
     void UpdateWidthText();
 
     std::unique_ptr<Ui::ConfigureUi> ui;
-
-    /// Reset Position was pressed: applying puts the performance overlay back in its corner
-    bool reset_overlay_position = false;
 
     Settings::AspectRatio ratio;
     Settings::ResolutionSetup resolution_setting;
