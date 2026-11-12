@@ -113,6 +113,25 @@ ProcessMemoryUsage GetProcessMemoryUsage() {
     return usage;
 }
 
+u64 GetAvailablePhysicalMemory() {
+#ifdef _WIN32
+    MEMORYSTATUSEX memorystatus{};
+    memorystatus.dwLength = sizeof(memorystatus);
+    if (GlobalMemoryStatusEx(&memorystatus)) {
+        return memorystatus.ullAvailPhys;
+    }
+#elif defined(__linux__)
+    std::ifstream meminfo{"/proc/meminfo"};
+    for (std::string line; std::getline(meminfo, line);) {
+        constexpr std::string_view key{"MemAvailable:"};
+        if (line.starts_with(key)) {
+            return std::strtoull(line.c_str() + key.size(), nullptr, 10) << 10;
+        }
+    }
+#endif
+    return 0;
+}
+
 std::optional<u64> GetSystemCommitRoom() {
 #ifdef _WIN32
     PERFORMANCE_INFORMATION performance{};

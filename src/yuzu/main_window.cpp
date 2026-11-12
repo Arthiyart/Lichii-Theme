@@ -5794,7 +5794,9 @@ void MainWindow::filterBarSetChecked(bool state) {
 static void AdjustLinkColor() {
     QPalette new_pal(qApp->palette());
 
-    if (UISettings::EffectiveTheme() == "lichii")
+    if (const auto accent = ThemeAccent())
+        new_pal.setColor(QPalette::Link, *accent);
+    else if (UISettings::EffectiveTheme() == "lichii")
         new_pal.setColor(QPalette::Link, QColor(0xf4, 0x5a, 0x85));
     else if (UISettings::IsDarkTheme())
         new_pal.setColor(QPalette::Link, QColor(0, 190, 255, 255));
@@ -5921,7 +5923,13 @@ void MainWindow::UpdateUITheme() {
 
     static bool lichii_palette = false;
     if (current_theme == QStringLiteral("lichii")) {
-        qApp->setPalette(LichiiPalette());
+        QPalette lichii_colors = LichiiPalette();
+        if (const auto accent = ThemeAccent()) {
+            lichii_colors.setColor(QPalette::Highlight, *accent);
+            lichii_colors.setColor(QPalette::Link, *accent);
+            lichii_colors.setColor(QPalette::LinkVisited, accent->darker(120));
+        }
+        qApp->setPalette(lichii_colors);
         lichii_palette = true;
     } else if (lichii_palette) {
         qApp->setPalette(QPalette());

@@ -34,7 +34,7 @@ class PerformanceOverlay : public QWidget {
     Q_PROPERTY(QColor lineColor MEMBER m_lineColor)
     Q_PROPERTY(QColor axisColor MEMBER m_axisColor)
     Q_PROPERTY(QColor medianLineColor MEMBER m_medianLineColor)
-    Q_PROPERTY(QColor graphBackgroundColor MEMBER m_graphBackgroundColor)
+    Q_PROPERTY(QColor warningColor MEMBER m_warningColor)
     Q_PROPERTY(qreal cornerRadius MEMBER m_cornerRadius)
 
 public:
@@ -63,10 +63,9 @@ private:
     void updateStats(const Core::PerfStatsResults& results, const VideoCore::ShaderNotify& shaders);
 
     void paintMinimal(QPainter& painter);
-    void paintStandard(QPainter& painter);
-    void paintFull(QPainter& painter);
+    /// The standard style, and the full one: the same with the memory rows and the lows.
+    void paintDetailed(QPainter& painter, bool full);
     void paintGraph(QPainter& painter, const QRectF& area);
-    void paintFpsChart(QPainter& painter, const QRectF& area);
 
     MainWindow* m_mainWindow = nullptr;
 
@@ -82,13 +81,15 @@ private:
     std::optional<double> m_fps;
     /// The last 5 s of 500 ms fps readings, for min/median/max
     std::deque<float> m_fpsSamples;
-    /// The last minute of 500 ms fps readings, for the full style's chart
-    std::deque<float> m_fpsHistory;
     std::optional<double> m_frameMs;
     std::optional<double> m_cpuPercent;
     std::optional<double> m_gpuPercent;
-    /// The emulator's resident memory in bytes, read for the full style
+    // Memory in bytes, read for the full style: the emulator's own and what the system and the
+    // graphics card have left.
     std::optional<u64> m_memoryBytes;
+    std::optional<u64> m_memoryFree;
+    std::optional<u64> m_vramUsed;
+    std::optional<u64> m_vramFree;
     std::optional<Common::DkbCpuTrace::Snapshot> m_cpuSnapshot;
     std::vector<Core::FrameTimeHistory::Entry> m_frames;
     QString m_tags;
@@ -103,7 +104,7 @@ private:
     QColor m_lineColor;
     QColor m_axisColor;
     QColor m_medianLineColor;
-    QColor m_graphBackgroundColor;
+    QColor m_warningColor;
     qreal m_cornerRadius = 5.0;
 
 signals:

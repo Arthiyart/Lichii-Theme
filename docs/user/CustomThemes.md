@@ -43,6 +43,7 @@ name=Art Dark
 base=lichii
 dark=true
 inherit=false
+accent=#82a88b
 ```
 
 | Key | Default | Meaning |
@@ -50,6 +51,7 @@ inherit=false
 | `name` | the folder's name | The name in the theme list. |
 | `base` | `lichii` | The built-in theme that provides the icons and the palette: `default`, `colorful`, `qdarkstyle`, `colorful_dark`, `qdarkstyle_midnight_blue`, `colorful_midnight_blue` or `lichii`. |
 | `dark` | whether `base` is dark | Dark title bar and link colours. |
+| `accent` | the base theme's | The colour of the selected category and tab icons, of the favourite star, of the selection and of links, as `#rrggbb`. |
 | `inherit` | `false` | `true` applies the base theme's stylesheet first, then `style.qss`. Use it for a theme that changes a few things of a built-in one. |
 
 ### Performance overlay
@@ -58,7 +60,7 @@ The overlay paints itself, so its colours are properties of `PerformanceOverlay`
 
 ```css
 PerformanceOverlay {
-    qproperty-backgroundColor: rgba(21, 24, 22, 230);
+    qproperty-backgroundColor: rgba(13, 16, 14, 140);
     qproperty-borderColor: #303531;
     qproperty-cornerRadius: 10;
     qproperty-accentColor: #82a88b;
@@ -73,12 +75,12 @@ PerformanceOverlay {
 | `textColor` | Values. |
 | `mutedColor` | Units, tags and secondary values. |
 | `dimColor` | The faintest labels. |
-| `accentColor` | Headings, the limiting load and the frame rate chart's line. |
+| `accentColor` | The limiting load. |
 | `lineColor` | The frame time graph's line. |
 | `spikeColor` | Frame time spikes. |
 | `axisColor` | Axes and grid lines. |
 | `medianLineColor` | The frame time graph's median line. |
-| `graphBackgroundColor` | The frame rate chart's background (full style). |
+| `warningColor` | Free memory that is running low (full style). |
 
 A property the stylesheet doesn't set keeps its built-in colour.
 
@@ -91,5 +93,5 @@ A property the stylesheet doesn't set keeps its built-in colour.
 - **Performance overlay style**:
   - *Minimal*: frame rate and frame time.
   - *Standard*: frame rate, frame time, CPU and GPU load, and the frame time graph.
-  - *Full*: frame time and frame rate with their minimum, maximum and average, CPU and GPU load,
-    the emulator's memory, and the frame rate chart of the last minute.
+  - *Full*: the standard style, plus the memory and the video memory the emulator uses with what
+    is left of each, and the frame rate of the slowest frames (low).

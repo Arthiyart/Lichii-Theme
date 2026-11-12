@@ -587,7 +587,7 @@ QFrame[frameShape="4"], QFrame[frameShape="5"] {
    #rrggbb or rgba(r, g, b, a) with a from 0 to 255. */
 
 PerformanceOverlay {
-    qproperty-backgroundColor: rgba(21, 24, 22, 230);
+    qproperty-backgroundColor: rgba(13, 16, 14, 140);
     qproperty-borderColor: #303531;
     qproperty-cornerRadius: 10;
     qproperty-textColor: #e6eae6;
@@ -598,5 +598,5 @@ PerformanceOverlay {
     qproperty-lineColor: #cfe3d4;
     qproperty-axisColor: rgba(255, 255, 255, 40);
     qproperty-medianLineColor: rgba(255, 255, 255, 56);
-    qproperty-graphBackgroundColor: rgba(16, 19, 17, 200);
+    qproperty-warningColor: #e0a45f;
 }

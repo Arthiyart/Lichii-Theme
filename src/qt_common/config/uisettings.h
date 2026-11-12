@@ -80,6 +80,8 @@ struct CustomTheme {
     /// The built-in theme that provides the icons and the palette
     QString base;
     bool dark = true;
+    /// The colour of what is selected, as QColor reads it (#rrggbb); empty keeps the base theme's
+    QString accent;
     /// Whether the base theme's stylesheet is applied before this theme's
     bool inherit = false;
 };

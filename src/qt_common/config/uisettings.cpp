@@ -100,6 +100,7 @@ bool IsBuiltinTheme(const QString& id) {
 ///   base=lichii       ; the built-in theme that provides the icons and the palette
 ///   dark=true         ; whether the title bar and the links are those of a dark theme
 ///   inherit=false     ; true applies the base theme's stylesheet before style.qss
+///   accent=#82a88b    ; the colour of selected icons, of the selection and of links
 std::optional<CustomTheme> LoadCustomTheme(const QDir& themes_dir, const QString& id) {
     const QDir dir{themes_dir.filePath(id)};
     if (id.isEmpty() || !dir.exists(QStringLiteral("style.qss"))) {
@@ -124,6 +125,7 @@ std::optional<CustomTheme> LoadCustomTheme(const QDir& themes_dir, const QString
     theme.dark = ini.value(QStringLiteral("Theme/dark"), IsDarkBuiltinTheme(theme.base.toStdString()))
                      .toBool();
     theme.inherit = ini.value(QStringLiteral("Theme/inherit"), false).toBool();
+    theme.accent = ini.value(QStringLiteral("Theme/accent")).toString().trimmed();
     return theme;
 }
 

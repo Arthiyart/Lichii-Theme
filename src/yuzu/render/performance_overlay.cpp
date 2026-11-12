@@ -7,6 +7,8 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <functional>
+#include <numeric>
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QMenuBar>
@@ -49,20 +51,17 @@ constexpr qreal FooterTop = GraphTop + GraphHeight + 10;
 constexpr int MinimalWidth = 176;
 constexpr int MinimalHeight = 40;
 
-// The full style: every figure in rows, then the fps chart.
-constexpr int FullWidth = 300;
-constexpr int FullHeight = 254;
-constexpr qreal FullRowHeight = 18;
-constexpr qreal FullChartHeight = 96;
-constexpr qreal FullAxisWidth = 30;
+// The full style: the standard one with the memory rows between the header and the graph.
+constexpr qreal FullRowHeight = 22;
+constexpr qreal FullRowsHeight = FullRowHeight * 2 + 4;
+constexpr int FullWidth = OverlayWidth;
+constexpr int FullHeight = OverlayHeight + static_cast<int>(FullRowsHeight);
+/// Less free memory than this is a warning.
+constexpr u64 LowMemory = u64{1} << 30;
+constexpr u64 LowVideoMemory = u64{512} << 20;
 
 /// Gap between the overlay and the edges of the main window's content.
 constexpr int Margin = 20;
-
-/// A minute of the 500 ms fps readings.
-constexpr std::size_t FpsHistorySamples = 120;
-/// Readings below this are freezes or outliers and stay out of the chart.
-constexpr float FpsHistoryThreshold = 3.0f;
 
 constexpr auto HistoryWindow = std::chrono::seconds{5};
 constexpr auto StatsWindow = std::chrono::milliseconds{500};
@@ -79,7 +78,7 @@ constexpr QRgb BackgroundColor = qRgba(0, 0, 0, 140);
 constexpr QRgb LineColor = qRgba(0xF2, 0xF3, 0xF5, 217);
 constexpr QRgb AxisColor = qRgba(255, 255, 255, 46);
 constexpr QRgb MedianLineColor = qRgba(255, 255, 255, 56);
-constexpr QRgb GraphBackgroundColor = qRgba(0, 0, 0, 90);
+constexpr QRgb WarningColor = qRgb(0xF5, 0xA7, 0x42);
 
 /// The busiest of these threads is the CPU side's limit: the guest cores and GPU emulation.
 constexpr std::array CpuRoles{
@@ -132,6 +131,31 @@ void DrawRuns(QPainter& painter, qreal x, qreal baseline, const std::vector<Run>
 QString Percent(const std::optional<double>& percent) {
     return percent ? QStringLiteral("%1%").arg(std::round(*percent), 0, 'f', 0)
                    : QStringLiteral("—");
+}
+
+QString Gigabytes(u64 bytes) {
+    return QStringLiteral("%1 GB").arg(static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0), 0,
+                                       'f', 1);
+}
+
+/// The frame rate of the slowest hundredth of the frames.
+std::optional<double> LowFps(const std::vector<Core::FrameTimeHistory::Entry>& frames) {
+    if (frames.size() < 2) {
+        return std::nullopt;
+    }
+    std::vector<float> frame_ms;
+    frame_ms.reserve(frames.size());
+    for (const auto& frame : frames) {
+        frame_ms.push_back(frame.ms);
+    }
+    const std::size_t count = std::max<std::size_t>(1, frame_ms.size() / 100);
+    const auto slowest_end = frame_ms.begin() + static_cast<std::ptrdiff_t>(count);
+    std::partial_sort(frame_ms.begin(), slowest_end, frame_ms.end(), std::greater<>{});
+    const double sum = std::accumulate(frame_ms.begin(), slowest_end, 0.0);
+    if (sum <= 0) {
+        return std::nullopt;
+    }
+    return 1000.0 * static_cast<double>(count) / sum;
 }
 
 } // namespace
@@ -193,7 +217,7 @@ void PerformanceOverlay::ResetThemeColors() {
     m_lineColor = QColor::fromRgba(LineColor);
     m_axisColor = QColor::fromRgba(AxisColor);
     m_medianLineColor = QColor::fromRgba(MedianLineColor);
-    m_graphBackgroundColor = QColor::fromRgba(GraphBackgroundColor);
+    m_warningColor = QColor::fromRgb(WarningColor);
     m_cornerRadius = 5.0;
     update();
 }
@@ -239,12 +263,6 @@ void PerformanceOverlay::updateStats(const Core::PerfStatsResults& results,
         m_fpsSamples.push_back(static_cast<float>(std::round(*m_fps)));
         if (m_fpsSamples.size() > FpsSamples) {
             m_fpsSamples.pop_front();
-        }
-        if (*m_fps > FpsHistoryThreshold) {
-            m_fpsHistory.push_back(static_cast<float>(*m_fps));
-            if (m_fpsHistory.size() > FpsHistorySamples) {
-                m_fpsHistory.pop_front();
-            }
         }
     }
 
@@ -292,6 +310,9 @@ void PerformanceOverlay::updateStats(const Core::PerfStatsResults& results,
     }
 
     m_memoryBytes.reset();
+    m_memoryFree.reset();
+    m_vramUsed.reset();
+    m_vramFree.reset();
     if (m_style == UISettings::PerfOverlayStyle::Full) {
         // What the task manager shows; hosts without it report the resident memory.
         const auto usage = Common::GetProcessMemoryUsage();
@@ -299,6 +320,13 @@ void PerformanceOverlay::updateStats(const Core::PerfStatsResults& results,
             usage.private_working_set != 0 ? usage.private_working_set : usage.working_set;
         if (bytes != 0) {
             m_memoryBytes = bytes;
+        }
+        if (const u64 available = Common::GetAvailablePhysicalMemory(); available != 0) {
+            m_memoryFree = available;
+        }
+        if (const auto device_memory = renderer.GetDeviceMemory()) {
+            m_vramUsed = device_memory->used;
+            m_vramFree = device_memory->available;
         }
     }
 
@@ -351,10 +379,10 @@ void PerformanceOverlay::paintEvent(QPaintEvent* event) {
         paintMinimal(painter);
         break;
     case UISettings::PerfOverlayStyle::Standard:
-        paintStandard(painter);
+        paintDetailed(painter, false);
         break;
     case UISettings::PerfOverlayStyle::Full:
-        paintFull(painter);
+        paintDetailed(painter, true);
         break;
     }
 }
@@ -382,166 +410,7 @@ void PerformanceOverlay::paintMinimal(QPainter& painter) {
     DrawRuns(painter, MinimalWidth - PaddingX - Width(ms_runs), baseline, ms_runs);
 }
 
-void PerformanceOverlay::paintFull(QPainter& painter) {
-    const QFont label_font = MonoFont(13, QFont::DemiBold);
-    const QFont value_font = MonoFont(13, QFont::DemiBold);
-    const QFont unit_font = MonoFont(13);
-    const QFont stat_font = MonoFont(12);
-    const QFont footer_font = MonoFont(11);
-
-    const qreal right = PaddingX + ContentWidth;
-    qreal top = PaddingTop;
-
-    // The features that are on, as the title line.
-    const QString tags = QFontMetricsF{footer_font}.elidedText(
-        m_tags.isEmpty() ? tr("Performance") : m_tags, Qt::ElideRight, ContentWidth);
-    DrawRuns(painter, PaddingX, Baseline(footer_font, top, FullRowHeight),
-             {{tags, footer_font, m_mutedColor}});
-    top += FullRowHeight;
-
-    // A heading with its current value, then min, max and average in three columns.
-    const auto section = [&](const QString& heading, const QString& value, const QString& unit,
-                             const std::optional<std::array<double, 3>>& stats, int decimals) {
-        DrawRuns(painter, PaddingX, Baseline(label_font, top, FullRowHeight),
-                 {{heading, label_font, m_accentColor}});
-        const std::vector<Run> value_runs{
-            {value, value_font, m_textColor},
-            {unit, unit_font, m_mutedColor},
-        };
-        DrawRuns(painter, right - Width(value_runs), Baseline(value_font, top, FullRowHeight),
-                 value_runs);
-        top += FullRowHeight;
-
-        const std::array<QString, 3> names{tr("Min"), tr("Max"), tr("Avg")};
-        for (std::size_t i = 0; i < names.size(); ++i) {
-            const QString number =
-                stats ? QString::number((*stats)[i], 'f', decimals) : QStringLiteral("—");
-            DrawRuns(painter, PaddingX + ContentWidth / 3 * static_cast<qreal>(i),
-                     Baseline(stat_font, top, FullRowHeight),
-                     {{names[i] + QStringLiteral(" "), stat_font, m_dimColor},
-                      {number, stat_font, m_mutedColor}});
-        }
-        top += FullRowHeight + 2;
-    };
-
-    // Frame time over the last 5 s.
-    std::optional<std::array<double, 3>> frame_stats;
-    if (!m_frames.empty()) {
-        double low = m_frames.front().ms;
-        double high = low;
-        double sum = 0;
-        for (const auto& frame : m_frames) {
-            low = std::min<double>(low, frame.ms);
-            high = std::max<double>(high, frame.ms);
-            sum += frame.ms;
-        }
-        frame_stats = std::array<double, 3>{low, high, sum / static_cast<double>(m_frames.size())};
-    }
-    section(tr("Frametime"), m_frameMs ? QString::number(*m_frameMs, 'f', 2) : QStringLiteral("—"),
-            QStringLiteral(" ms"), frame_stats, 1);
-
-    // Frame rate over the last minute.
-    std::optional<std::array<double, 3>> fps_stats;
-    if (!m_fpsHistory.empty()) {
-        const auto [low, high] = std::minmax_element(m_fpsHistory.begin(), m_fpsHistory.end());
-        double sum = 0;
-        for (const float fps : m_fpsHistory) {
-            sum += fps;
-        }
-        fps_stats = std::array<double, 3>{*low, *high, sum / static_cast<double>(m_fpsHistory.size())};
-    }
-    section(tr("FPS"), m_fps ? QString::number(std::round(*m_fps), 'f', 0) : QStringLiteral("—"),
-            QStringLiteral(" fps"), fps_stats, 0);
-
-    // The higher percentage is the limit and gets the accent.
-    const bool both = m_cpuPercent && m_gpuPercent;
-    const bool cpu_limit = both && std::round(*m_cpuPercent) >= std::round(*m_gpuPercent);
-    const bool gpu_limit = both && !cpu_limit;
-    DrawRuns(painter, PaddingX, Baseline(label_font, top, FullRowHeight),
-             {{tr("Load"), label_font, m_accentColor}});
-    const std::vector<Run> load_runs{
-        {QStringLiteral("CPU ") + Percent(m_cpuPercent), cpu_limit ? value_font : unit_font,
-         cpu_limit ? m_textColor : m_mutedColor},
-        {QStringLiteral("  "), unit_font, m_mutedColor},
-        {QStringLiteral("GPU ") + Percent(m_gpuPercent), gpu_limit ? value_font : unit_font,
-         gpu_limit ? m_textColor : m_mutedColor},
-    };
-    DrawRuns(painter, right - Width(load_runs), Baseline(unit_font, top, FullRowHeight), load_runs);
-    top += FullRowHeight;
-
-    // The emulator's own memory.
-    DrawRuns(painter, PaddingX, Baseline(label_font, top, FullRowHeight),
-             {{tr("Memory"), label_font, m_accentColor}});
-    QString memory = QStringLiteral("—");
-    QString memory_unit;
-    if (m_memoryBytes) {
-        const double mib = static_cast<double>(*m_memoryBytes) / (1024.0 * 1024.0);
-        if (mib >= 1024.0) {
-            memory = QString::number(mib / 1024.0, 'f', 2);
-            memory_unit = QStringLiteral(" GB");
-        } else {
-            memory = QString::number(mib, 'f', 0);
-            memory_unit = QStringLiteral(" MB");
-        }
-    }
-    const std::vector<Run> memory_runs{
-        {memory, value_font, m_textColor},
-        {memory_unit, unit_font, m_mutedColor},
-    };
-    DrawRuns(painter, right - Width(memory_runs), Baseline(value_font, top, FullRowHeight),
-             memory_runs);
-    top += FullRowHeight + 6;
-
-    paintFpsChart(painter, QRectF{PaddingX, top, ContentWidth, FullChartHeight});
-}
-
-void PerformanceOverlay::paintFpsChart(QPainter& painter, const QRectF& area) {
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(m_graphBackgroundColor);
-    painter.drawRoundedRect(area, 4.0, 4.0);
-
-    const QFont axis_font = MonoFont(10);
-    const QRectF plot{area.left() + FullAxisWidth, area.top() + 8, area.width() - FullAxisWidth - 8,
-                      area.height() - 16};
-
-    float high = 60.0f;
-    if (!m_fpsHistory.empty()) {
-        high = std::max(1.0f, *std::max_element(m_fpsHistory.begin(), m_fpsHistory.end()));
-    }
-
-    // Grid lines at zero, half and the highest reading, labelled on the left.
-    const std::array<float, 3> levels{high, high / 2, 0.0f};
-    for (const float level : levels) {
-        const qreal y = plot.bottom() - level / high * plot.height();
-        painter.fillRect(QRectF{plot.left(), y - 0.5, plot.width(), 1}, m_axisColor);
-        const QString label = QString::number(std::round(level), 'f', 0);
-        DrawRuns(painter,
-                 plot.left() - 6 - QFontMetricsF{axis_font}.horizontalAdvance(label),
-                 Baseline(axis_font, y - LabelHeight / 2, LabelHeight),
-                 {{label, axis_font, m_mutedColor}});
-    }
-    if (m_fpsHistory.size() < 2) {
-        return;
-    }
-
-    // The newest reading is at the right edge; a full history spans the plot.
-    QPolygonF line;
-    line.reserve(static_cast<qsizetype>(m_fpsHistory.size()));
-    const qreal step = plot.width() / static_cast<qreal>(FpsHistorySamples - 1);
-    const qreal first_x = plot.right() - step * static_cast<qreal>(m_fpsHistory.size() - 1);
-    for (std::size_t i = 0; i < m_fpsHistory.size(); ++i) {
-        line << QPointF{first_x + step * static_cast<qreal>(i),
-                        plot.bottom() - m_fpsHistory[i] / high * plot.height()};
-    }
-    QPen line_pen{m_accentColor, 1.6};
-    line_pen.setJoinStyle(Qt::RoundJoin);
-    line_pen.setCapStyle(Qt::RoundCap);
-    painter.setBrush(Qt::NoBrush);
-    painter.setPen(line_pen);
-    painter.drawPolyline(line);
-}
-
-void PerformanceOverlay::paintStandard(QPainter& painter) {
+void PerformanceOverlay::paintDetailed(QPainter& painter, bool full) {
     const QColor text = m_textColor;
     const QColor muted = m_mutedColor;
     const QColor accent = m_accentColor;
@@ -582,7 +451,32 @@ void PerformanceOverlay::paintStandard(QPainter& painter) {
     DrawRuns(painter, right - Width(load_runs), Baseline(small_font, right_top + 17, 17),
              load_runs);
 
-    paintGraph(painter, QRectF{PaddingX, GraphTop, ContentWidth, GraphHeight});
+    // The full style's memory rows: what the emulator uses on the left, what is left on the right.
+    qreal offset = 0;
+    if (full) {
+        const QFont value_font = MonoFont(14, QFont::DemiBold);
+        const auto memory_row = [&](const QString& name, const std::optional<u64>& used,
+                                    const std::optional<u64>& available, u64 low) {
+            const qreal baseline =
+                Baseline(value_font, PaddingTop + HeaderHeight + 2 + offset, FullRowHeight);
+            DrawRuns(painter, PaddingX, baseline,
+                     {{used ? Gigabytes(*used) : QStringLiteral("—"), value_font, text},
+                      {name, small_font, muted}});
+            if (available) {
+                const std::vector<Run> free_runs{
+                    {tr("%1 free").arg(Gigabytes(*available)), small_font,
+                     *available < low ? m_warningColor : muted},
+                };
+                DrawRuns(painter, right - Width(free_runs), baseline, free_runs);
+            }
+            offset += FullRowHeight;
+        };
+        memory_row(QStringLiteral(" RAM"), m_memoryBytes, m_memoryFree, LowMemory);
+        memory_row(QStringLiteral(" VRAM"), m_vramUsed, m_vramFree, LowVideoMemory);
+        offset = FullRowsHeight;
+    }
+
+    paintGraph(painter, QRectF{PaddingX, GraphTop + offset, ContentWidth, GraphHeight});
 
     // Footer: fps min/median/max over the last 5 s, and the features that are on.
     QString fps_range = QStringLiteral("— — —");
@@ -593,11 +487,18 @@ void PerformanceOverlay::paintStandard(QPainter& painter) {
                         .arg(std::round(summary->median_ms), 0, 'f', 0)
                         .arg(summary->max_ms, 0, 'f', 0);
     }
-    const qreal footer_baseline = Baseline(footer_font, FooterTop, LabelHeight);
-    const std::vector<Run> range_runs{
+    const qreal footer_baseline = Baseline(footer_font, FooterTop + offset, LabelHeight);
+    std::vector<Run> range_runs{
         {fps_range, footer_font, muted},
         {QStringLiteral(" fps"), footer_font, m_dimColor},
     };
+    if (full) {
+        const auto low_fps = LowFps(m_frames);
+        range_runs.push_back({tr("  low "), footer_font, m_dimColor});
+        range_runs.push_back(
+            {low_fps ? QString::number(std::round(*low_fps), 'f', 0) : QStringLiteral("—"),
+             footer_font, muted});
+    }
     DrawRuns(painter, PaddingX, footer_baseline, range_runs);
 
     const qreal tags_width = ContentWidth - Width(range_runs) - 12;
@@ -713,9 +614,11 @@ void PerformanceOverlay::hideEvent(QHideEvent* event) {
     m_cpuPercent.reset();
     m_gpuPercent.reset();
     m_memoryBytes.reset();
+    m_memoryFree.reset();
+    m_vramUsed.reset();
+    m_vramFree.reset();
     m_cpuSnapshot.reset();
     m_frames.clear();
-    m_fpsHistory.clear();
 }
 
 void PerformanceOverlay::showEvent(QShowEvent* event) {
