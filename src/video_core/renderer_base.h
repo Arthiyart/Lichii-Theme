@@ -101,17 +101,6 @@ public:
         return std::nullopt;
     }
 
-    /// Device memory in bytes: what the emulator uses and what is left of its budget
-    struct DeviceMemory {
-        u64 used{};
-        u64 available{};
-    };
-
-    /// nullopt when the renderer doesn't know
-    [[nodiscard]] virtual std::optional<DeviceMemory> GetDeviceMemory() const {
-        return std::nullopt;
-    }
-
     [[nodiscard]] const RendererDeviceInfo& GetDeviceInfo() const {
         return device_info;
     }

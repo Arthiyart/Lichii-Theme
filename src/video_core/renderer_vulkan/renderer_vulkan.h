@@ -79,15 +79,6 @@ public:
         return scheduler.GpuBusyMs();
     }
 
-    [[nodiscard]] std::optional<DeviceMemory> GetDeviceMemory() const override {
-        const u64 used = device.GetDeviceMemoryUsage();
-        u64 budget = device.GetDeviceMemoryBudget();
-        if (budget == 0) {
-            budget = device.GetDeviceLocalMemory();
-        }
-        return DeviceMemory{.used = used, .available = budget > used ? budget - used : 0};
-    }
-
     // Enhanced platform-specific initialization
     void InitializePlatformSpecific();
 

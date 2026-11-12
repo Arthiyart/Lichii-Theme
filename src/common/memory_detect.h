@@ -31,9 +31,6 @@ struct ProcessMemoryUsage {
 
 [[nodiscard]] ProcessMemoryUsage GetProcessMemoryUsage();
 
-/// Physical memory the system can still hand out, in bytes. Zero where the host does not report it.
-[[nodiscard]] u64 GetAvailablePhysicalMemory();
-
 /// Commit the system can still hand out, in bytes: its commit limit (RAM plus the page files)
 /// minus what is committed. No value where the host reports no such limit (anything but Windows).
 [[nodiscard]] std::optional<u64> GetSystemCommitRoom();
