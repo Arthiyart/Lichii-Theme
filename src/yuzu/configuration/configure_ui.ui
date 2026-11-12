@@ -78,20 +78,6 @@
          </layout>
         </item>
         <item>
-         <layout class="QHBoxLayout" name="perf_overlay_position_layout" stretch="1,1">
-          <item>
-           <widget class="QLabel" name="perf_overlay_position_label">
-            <property name="text">
-             <string>Performance overlay position:</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QComboBox" name="perf_overlay_position_combobox"/>
-          </item>
-         </layout>
-        </item>
-        <item>
          <layout class="QHBoxLayout" name="perf_overlay_style_layout" stretch="1,1">
           <item>
            <widget class="QLabel" name="perf_overlay_style_label">
@@ -101,7 +87,21 @@
            </widget>
           </item>
           <item>
-           <widget class="QComboBox" name="perf_overlay_style_combobox"/>
+           <layout class="QHBoxLayout" name="perf_overlay_choice_layout" stretch="1,0">
+            <item>
+             <widget class="QComboBox" name="perf_overlay_style_combobox"/>
+            </item>
+            <item>
+             <widget class="QPushButton" name="perf_overlay_reset_button">
+              <property name="toolTip">
+               <string>Drag the performance overlay with the mouse to place it; near an edge of the window it sticks to it. This puts it back in the top right corner.</string>
+              </property>
+              <property name="text">
+               <string>Reset Position</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </item>
          </layout>
         </item>

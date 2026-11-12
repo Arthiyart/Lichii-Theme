@@ -54,14 +54,7 @@ constexpr std::array row_text_names{
 };
 // clang-format on
 
-// In the order of UISettings::PerfOverlayPosition and UISettings::PerfOverlayStyle.
-constexpr std::array perf_overlay_position_names{
-    QT_TRANSLATE_NOOP("ConfigureUI", "Top left"),
-    QT_TRANSLATE_NOOP("ConfigureUI", "Top right"),
-    QT_TRANSLATE_NOOP("ConfigureUI", "Bottom left"),
-    QT_TRANSLATE_NOOP("ConfigureUI", "Bottom right"),
-};
-
+// In the order of UISettings::PerfOverlayStyle.
 constexpr std::array perf_overlay_style_names{
     QT_TRANSLATE_NOOP("ConfigureUI", "Minimal (frame rate and frame time)"),
     QT_TRANSLATE_NOOP("ConfigureUI", "Standard"),
@@ -187,8 +180,16 @@ ConfigureUi::~ConfigureUi() = default;
 void ConfigureUi::ApplyConfiguration() {
     UISettings::values.theme =
         ui->theme_combobox->itemData(ui->theme_combobox->currentIndex()).toString().toStdString();
-    UISettings::values.perf_overlay_position =
-        static_cast<u32>(ui->perf_overlay_position_combobox->currentIndex());
+    if (reset_overlay_position) {
+        reset_overlay_position = false;
+        ui->perf_overlay_reset_button->setEnabled(true);
+        UISettings::values.perf_overlay_position =
+            UISettings::values.perf_overlay_position.GetDefault();
+        UISettings::values.perf_overlay_offset_x =
+            UISettings::values.perf_overlay_offset_x.GetDefault();
+        UISettings::values.perf_overlay_offset_y =
+            UISettings::values.perf_overlay_offset_y.GetDefault();
+    }
     UISettings::values.perf_overlay_style =
         static_cast<u32>(ui->perf_overlay_style_combobox->currentIndex());
     UISettings::values.show_add_ons = ui->show_add_ons->isChecked();
@@ -224,9 +225,6 @@ void ConfigureUi::SetConfiguration() {
         ui->theme_combobox->addItem(tr("%1 - not found").arg(name), theme);
     }
     ui->theme_combobox->setCurrentIndex(ui->theme_combobox->findData(theme));
-    ui->perf_overlay_position_combobox->setCurrentIndex(
-        static_cast<int>(std::min<u32>(UISettings::values.perf_overlay_position.GetValue(),
-                                       static_cast<u32>(perf_overlay_position_names.size() - 1))));
     ui->perf_overlay_style_combobox->setCurrentIndex(
         static_cast<int>(std::min<u32>(UISettings::values.perf_overlay_style.GetValue(),
                                        static_cast<u32>(perf_overlay_style_names.size() - 1))));
@@ -279,11 +277,6 @@ void ConfigureUi::RetranslateUI() {
             i, GetTranslatedFolderIconSize(static_cast<size_t>(i)));
     }
 
-    for (int i = 0; i < ui->perf_overlay_position_combobox->count(); i++) {
-        ui->perf_overlay_position_combobox->setItemText(
-            i, QCoreApplication::translate("ConfigureUI",
-                                           perf_overlay_position_names[static_cast<size_t>(i)]));
-    }
     for (int i = 0; i < ui->perf_overlay_style_combobox->count(); i++) {
         ui->perf_overlay_style_combobox->setItemText(
             i, QCoreApplication::translate("ConfigureUI",
@@ -319,10 +312,10 @@ void ConfigureUi::InitializeLanguageComboBox() {
 }
 
 void ConfigureUi::InitializePerfOverlayComboBoxes() {
-    for (const char* name : perf_overlay_position_names) {
-        ui->perf_overlay_position_combobox->addItem(
-            QCoreApplication::translate("ConfigureUI", name));
-    }
+    connect(ui->perf_overlay_reset_button, &QPushButton::clicked, this, [this] {
+        reset_overlay_position = true;
+        ui->perf_overlay_reset_button->setEnabled(false);
+    });
     for (const char* name : perf_overlay_style_names) {
         ui->perf_overlay_style_combobox->addItem(QCoreApplication::translate("ConfigureUI", name));
     }

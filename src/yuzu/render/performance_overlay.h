@@ -40,7 +40,7 @@ class PerformanceOverlay : public QWidget {
 public:
     explicit PerformanceOverlay(MainWindow* parent = nullptr);
 
-    /// Takes the position and the style from the settings.
+    /// Takes the style and the place from the settings.
     void ApplySettings();
 
     /// Back to the built-in colours. Call before a new stylesheet is applied: a stylesheet only
@@ -54,12 +54,18 @@ protected:
 
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
 
 private:
     void resetPosition(const QPoint& pos);
-    /// Where the overlay sits in its corner of the main window, in screen coordinates.
+    /// The main window's content, between the menu bar and the status bar, in screen coordinates.
+    QRect ContentArea() const;
+    /// Where the settings put the overlay, in screen coordinates.
     QPoint AnchorPosition() const;
+    /// Keeps where the overlay is as a corner of the window and the distance from its edges, so
+    /// that it stays there when the window moves or changes size.
+    void StoreAnchor();
     void updateStats(const Core::PerfStatsResults& results, const VideoCore::ShaderNotify& shaders);
 
     void paintMinimal(QPainter& painter);
@@ -72,11 +78,9 @@ private:
     UISettings::PerfOverlayStyle m_style = UISettings::PerfOverlayStyle::Standard;
     UISettings::PerfOverlayPosition m_position = UISettings::PerfOverlayPosition::TopRight;
 
-    /// How far the user dragged the overlay from its corner
-    QPoint m_dragOffset;
-
     // drag
     QPoint m_drag_start_pos;
+    bool m_dragged = false;
 
     std::optional<double> m_fps;
     /// The last 5 s of 500 ms fps readings, for min/median/max

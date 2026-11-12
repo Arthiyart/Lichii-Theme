@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <numeric>
 #include <QFontMetricsF>
@@ -60,8 +61,8 @@ constexpr int FullHeight = OverlayHeight + static_cast<int>(FullRowsHeight);
 constexpr u64 LowMemory = u64{1} << 30;
 constexpr u64 LowVideoMemory = u64{512} << 20;
 
-/// Gap between the overlay and the edges of the main window's content.
-constexpr int Margin = 20;
+/// Dragged this close to an edge of the main window's content, the overlay sticks to it.
+constexpr int SnapDistance = 10;
 
 constexpr auto HistoryWindow = std::chrono::seconds{5};
 constexpr auto StatsWindow = std::chrono::milliseconds{500};
@@ -177,19 +178,12 @@ void PerformanceOverlay::ApplySettings() {
     using UISettings::PerfOverlayPosition;
     using UISettings::PerfOverlayStyle;
 
-    const auto style = static_cast<PerfOverlayStyle>(
+    m_style = static_cast<PerfOverlayStyle>(
         std::min(UISettings::values.perf_overlay_style.GetValue(),
                  static_cast<u32>(PerfOverlayStyle::Full)));
-    const auto position = static_cast<PerfOverlayPosition>(
+    m_position = static_cast<PerfOverlayPosition>(
         std::min(UISettings::values.perf_overlay_position.GetValue(),
                  static_cast<u32>(PerfOverlayPosition::BottomRight)));
-
-    // A new corner or a new size starts from the corner again; otherwise a drag is kept.
-    if (style != m_style || position != m_position) {
-        m_dragOffset = {};
-    }
-    m_style = style;
-    m_position = position;
 
     switch (m_style) {
     case PerfOverlayStyle::Minimal:
@@ -222,10 +216,7 @@ void PerformanceOverlay::ResetThemeColors() {
     update();
 }
 
-QPoint PerformanceOverlay::AnchorPosition() const {
-    using UISettings::PerfOverlayPosition;
-
-    // The main window's content, between the menu bar and the status bar, in screen coordinates.
+QRect PerformanceOverlay::ContentArea() const {
     QRect area{m_mainWindow->mapToGlobal(QPoint{0, 0}), m_mainWindow->size()};
     if (const QWidget* menu_bar = m_mainWindow->menuBar(); menu_bar->isVisible()) {
         area.setTop(area.top() + menu_bar->height());
@@ -233,19 +224,47 @@ QPoint PerformanceOverlay::AnchorPosition() const {
     if (const QWidget* status_bar = m_mainWindow->statusBar(); status_bar->isVisible()) {
         area.setBottom(area.bottom() - status_bar->height());
     }
+    return area;
+}
 
+QPoint PerformanceOverlay::AnchorPosition() const {
+    using UISettings::PerfOverlayPosition;
+
+    const QRect area = ContentArea();
+    const int offset_x = UISettings::values.perf_overlay_offset_x.GetValue();
+    const int offset_y = UISettings::values.perf_overlay_offset_y.GetValue();
     const bool right = m_position == PerfOverlayPosition::TopRight ||
                        m_position == PerfOverlayPosition::BottomRight;
     const bool bottom = m_position == PerfOverlayPosition::BottomLeft ||
                         m_position == PerfOverlayPosition::BottomRight;
     return QPoint{
-        right ? area.right() + 1 - Margin - width() : area.left() + Margin,
-        bottom ? area.bottom() + 1 - Margin - height() : area.top() + Margin,
+        right ? area.right() + 1 - offset_x - width() : area.left() + offset_x,
+        bottom ? area.bottom() + 1 - offset_y - height() : area.top() + offset_y,
     };
 }
 
+void PerformanceOverlay::StoreAnchor() {
+    using UISettings::PerfOverlayPosition;
+
+    // The nearest corner is the anchor: the overlay keeps its distance from that corner's edges.
+    const QRect area = ContentArea();
+    const QRect box{pos(), size()};
+    const bool right = box.center().x() > area.center().x();
+    const bool bottom = box.center().y() > area.center().y();
+    if (bottom) {
+        m_position = right ? PerfOverlayPosition::BottomRight : PerfOverlayPosition::BottomLeft;
+    } else {
+        m_position = right ? PerfOverlayPosition::TopRight : PerfOverlayPosition::TopLeft;
+    }
+    UISettings::values.perf_overlay_position = static_cast<u32>(m_position);
+    UISettings::values.perf_overlay_offset_x =
+        right ? area.right() + 1 - (box.x() + box.width()) : box.x() - area.left();
+    UISettings::values.perf_overlay_offset_y =
+        bottom ? area.bottom() + 1 - (box.y() + box.height()) : box.y() - area.top();
+}
+
 void PerformanceOverlay::resetPosition(const QPoint& _) {
-    move(AnchorPosition() + m_dragOffset);
+    move(AnchorPosition());
 }
 
 void PerformanceOverlay::updateStats(const Core::PerfStatsResults& results,
@@ -637,14 +656,33 @@ void PerformanceOverlay::mousePressEvent(QMouseEvent* event) {
         return;
     }
     m_drag_start_pos = event->pos();
+    m_dragged = false;
 }
 
 void PerformanceOverlay::mouseMoveEvent(QMouseEvent* event) {
     // drag
     if (event->buttons() & Qt::LeftButton) {
         QPoint new_global_pos = event->globalPosition().toPoint() - m_drag_start_pos;
-        m_dragOffset = new_global_pos - AnchorPosition();
+        const QRect area = ContentArea();
+        if (std::abs(new_global_pos.x() - area.left()) <= SnapDistance) {
+            new_global_pos.setX(area.left());
+        } else if (std::abs(new_global_pos.x() + width() - area.right() - 1) <= SnapDistance) {
+            new_global_pos.setX(area.right() + 1 - width());
+        }
+        if (std::abs(new_global_pos.y() - area.top()) <= SnapDistance) {
+            new_global_pos.setY(area.top());
+        } else if (std::abs(new_global_pos.y() + height() - area.bottom() - 1) <= SnapDistance) {
+            new_global_pos.setY(area.bottom() + 1 - height());
+        }
         move(new_global_pos);
+        m_dragged = true;
+    }
+}
+
+void PerformanceOverlay::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && m_dragged) {
+        m_dragged = false;
+        StoreAnchor();
     }
 }
 

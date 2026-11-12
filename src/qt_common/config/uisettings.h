@@ -273,10 +273,15 @@ struct Values {
 
     // perf overlay
     Setting<bool> show_perf_overlay{linkage, false, "show_perf_overlay", Category::UiGameList};
-    /// A PerfOverlayPosition: the corner of the window the overlay sits in
+    // Where the overlay was dragged to: a PerfOverlayPosition, the corner of the window it is
+    // nearest to, and its distance in pixels from the two window edges of that corner.
     Setting<u32> perf_overlay_position{linkage,
                                        static_cast<u32>(PerfOverlayPosition::TopRight),
                                        "perf_overlay_position", Category::UiGameList};
+    Setting<s32> perf_overlay_offset_x{linkage, 20, "perf_overlay_offset_x",
+                                       Category::UiGameList};
+    Setting<s32> perf_overlay_offset_y{linkage, 20, "perf_overlay_offset_y",
+                                       Category::UiGameList};
     /// A PerfOverlayStyle: how much the overlay shows
     Setting<u32> perf_overlay_style{linkage, static_cast<u32>(PerfOverlayStyle::Standard),
                                     "perf_overlay_style", Category::UiGameList};

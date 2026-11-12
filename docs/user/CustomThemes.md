@@ -86,10 +86,13 @@ A property the stylesheet doesn't set keeps its built-in colour.
 
 ## Performance overlay position and style
 
-**Emulation > Configure > General > UI** also sets:
+Drag the overlay with the mouse to place it. It keeps its distance from the nearest corner of the
+window, so it stays in place when the window moves or changes size, and it sticks to an edge of the
+window when dragged close to it.
 
-- **Performance overlay position**: the corner of the window it sits in. It can still be dragged;
-  choosing another corner or style puts it back in its corner.
+**Emulation > Configure > General > UI** also has:
+
+- **Reset Position**: puts the overlay back in the top right corner.
 - **Performance overlay style**:
   - *Minimal*: frame rate and frame time.
   - *Standard*: frame rate, frame time, CPU and GPU load, and the frame time graph.
